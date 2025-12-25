@@ -1,0 +1,20 @@
+# Temporary / backup files
+*.bak
+*.tmp
+*.swp
+*~
+
+# Logs
+*.log
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.vscode/
+.idea/
+
+# Shell output
+nohup.out
+
