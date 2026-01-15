@@ -99,7 +99,7 @@ select_act_files() {
 
     case "$mode" in
         salt)
-            mapfile -t files < <(find "$evlog_dir" -type f -mmin -35 -name "*[0123456789ABCDEF][0123456789ABCDEF][0123456789ABCDEF][0123456789ABCDEF].ACT" ! -name "*.gz")
+            mapfile -t files < <(find "$evlog_dir" -maxdepth 1 -type f -mmin -35 -name "*[0123456789ABCDEF][0123456789ABCDEF][0123456789ABCDEF][0123456789ABCDEF].ACT" ! -name "*.gz")
             if [[ "$DEBUG" == "1" ]]; then
                 echo "DEBUG: [salt] Final files to return: ${files[*]}" >&2
             fi
@@ -111,7 +111,7 @@ select_act_files() {
             search_end_plus1=$(date -d "$arg1 +2 day" +"%Y-%m-%d 00:00:00") || die "Invalid search_date: $arg1" 64
 
             # Get all files for the search date, sorted by time (include timestamp for filtering)
-            mapfile -t files_with_time < <(find "$evlog_dir" -type f \( -name "*.ACT" -o -name "*.ACT.gz" \) \
+            mapfile -t files_with_time < <(find "$evlog_dir" -maxdepth 1 -type f \( -name "*.ACT" -o -name "*.ACT.gz" \) \
                 -newermt "$search_start" ! -newermt "$search_end" -printf "%T@ %f\n" | sort -n)
 
             files=()
@@ -134,7 +134,7 @@ select_act_files() {
             fi
 
             # Find the next day's file created at 00:00:00
-            mapfile -t next_file_entry < <(find "$evlog_dir" -type f \( -name "*.ACT" -o -name "*.ACT.gz" \) \
+            mapfile -t next_file_entry < <(find "$evlog_dir" -maxdepth 1 -type f \( -name "*.ACT" -o -name "*.ACT.gz" \) \
                 -newermt "$search_end" ! -newermt "$search_end_plus1" -printf "%T@ %f\n" | sort -n)
             for entry in "${next_file_entry[@]}"; do
                 ts_epoch="${entry%% *}"
@@ -157,29 +157,72 @@ select_act_files() {
                 echo "DEBUG: [date] select_act_files finished" >&2
             fi
             ;;
+
         range)
-            local search_start search_end_plus1
+            local search_start search_end search_end_plus1
             search_start=$(date -d "$arg1" +"%Y-%m-%d 00:00:00") || die "Invalid search_date: $arg1" 64
+            search_end=$(date -d "$arg2" +"%Y-%m-%d 00:00:00") || die "Invalid search_date: $arg1" 64
             search_end_plus1=$(date -d "$arg2 +1 day" +"%Y-%m-%d 00:00:00") || die "Invalid end_search_date: $arg2" 64
 
             if [[ "$DEBUG" == "1" ]]; then
-                echo "DEBUG: [range] search_start: $search_start search_end_plus1: $search_end_plus1" >&2
+                echo "DEBUG: [range] search_start: $search_start search_end: $search_end search_end_plus1: $search_end_plus1" >&2
             fi
 
-            mapfile -t files < <(find "$evlog_dir" -type f \( -name "*.ACT" -o -name "*.ACT.gz" \) -newermt "$search_start" ! -newermt "$search_end_plus1" -printf "%T@ %f\n" | sort -n | tail -n +2 | awk '{print $2}')
-            # Append the next day's first file at 00:00:00, if any
-            next_file=$(find "$evlog_dir" -type f \( -name "*.ACT" -o -name "*.ACT.gz" \) -newermt "$search_end_plus1" -printf "%T@ %f\n" | sort -n | head -1 | awk '{print $2}')
-            if [[ -n "$next_file" ]]; then
-                files+=("$next_file")
-            fi
+            # Get all files in the range
+            mapfile -t files_with_time < <(
+                find "$evlog_dir" -maxdepth 1 -type f \( -name "*.ACT" -o -name "*.ACT.gz" \) \
+                    -newermt "$search_start" ! -newermt "$search_end_plus1" -printf "%T@ %f\n" | sort -n
+            )
+
             if [[ "$DEBUG" == "1" ]]; then
-                echo "DEBUG: [range] select_act_files finished" >&2
+                printf "DEBUG: [range] files_with_time:\n%s\n" "${files_with_time[@]}" >&2
             fi
+
+            files=()
+            first_entry=1
+            for entry in "${files_with_time[@]}"; do
+                ts_epoch="${entry%% *}"
+                fname="${entry#* }"
+                file_time=$(date -d @"${ts_epoch%.*}" +"%H:%M:$S")
+                file_date=$(date -d @"${ts_epoch%.*}" +"%Y-%m-$d")
+                # Only skip the very first file if it was created at midnight
+                if [[ $first_entry -eq 1 && "$file_time" == "00:00:00" ]]; then
+                    if [[ "$DEBUG" == "1" ]]; then
+                        echo "DEBUG: [range] Skipping $fname created at $file_time" >&2
+                    fi
+                    first_entry=0
+                    continue
+                fi
+                files+=("$fname")
+                first_entry=0
+            done
+            
+            # Find the first file at midnight on the day after the end date
+            search_end_date=$(date -d "$search_end" +"%Y-%m-%d")
+            search_end_plus1_date=$(date -d "$search_end_plus1" +"%Y-%m-%d")
+            midnight_lower="${search_end_date} 23:59:59"
+            midnight_upper="${search_end_plus1_date} 00:00:01"
+            midnight_file_entry=$(find "$evlog_dir" -maxdepth 1 -type f \( -name "*.ACT" -o -name "*.ACT.gz" \) \
+                -newermt "$midnight_lower" ! -newermt "$midnight_upper" -printf "%T@ %f\n" | sort -n | head -1)
+            if [[ -n "$midnight_file_entry" ]]; then
+                midnight_fname="${midnight_file_entry#* }"
+                if [[ ! " ${files[*]} " =~ " $midnight_fname " ]]; then
+                    files+=("$midnight_fname")
+                    if [[ "$DEBUG" == "1" ]]; then
+                        echo "DEBUG: [range] Appending midnight file: $midnight_fname" >&2
+                    fi
+                fi
+            fi        
+
+            if [[ "$DEBUG" == "1" ]]; then
+                echo "DEBUG: [range] Final files to return: ${files[*]}" >&2
+            fi
+            printf '%s\n' "${files[@]}"
             ;;
         today)
             local today_start
             today_start=$(date -d "today 00:00" +"%Y-%m-%d %H:%M:%S")
-            mapfile -t files < <(find "$evlog_dir" -type f \( -name "*.ACT" -o -name "*.ACT.gz" \) -newermt "$today_start" -printf "%T@ %f\n" | sort -n | tail -n +2 | awk '{print $2}')
+            mapfile -t files < <(find "$evlog_dir" -maxdepth 1 -type f \( -name "*.ACT" -o -name "*.ACT.gz" \) -newermt "$today_start" -printf "%T@ %f\n" | sort -n | tail -n +2 | awk '{print $2}')
             if [[ "$DEBUG" == "1" ]]; then
                 echo "DEBUG: [today] select_act_files finished" >&2
             fi
@@ -188,8 +231,8 @@ select_act_files() {
             local yest_start yest_end first_today_file
             yest_start=$(date -d "yesterday 00:00" +"%Y-%m-%d %H:%M:%S")
             yest_end=$(date -d "today 00:00" +"%Y-%m-%d %H:%M:%S")
-            mapfile -t files < <(find "$evlog_dir" -type f \( -name "*.ACT" -o -name "*.ACT.gz" \) -newermt "$yest_start" ! -newermt "$yest_end" -printf "%T@ %f\n" | sort -n | tail -n +2 | awk '{print $2}')
-            first_today_file=$(find "$evlog_dir" -type f \( -name "*.ACT" -o -name "*.ACT.gz" \) -newermt "$yest_end" -printf "%T@ %f\n" | sort -n | head -1 | awk '{print $2}')
+            mapfile -t files < <(find "$evlog_dir" -maxdepth 1 -type f \( -name "*.ACT" -o -name "*.ACT.gz" \) -newermt "$yest_start" ! -newermt "$yest_end" -printf "%T@ %f\n" | sort -n | tail -n +2 | awk '{print $2}')
+            first_today_file=$(find "$evlog_dir" -maxdepth 1 -type f \( -name "*.ACT" -o -name "*.ACT.gz" \) -newermt "$yest_end" -printf "%T@ %f\n" | sort -n | head -1 | awk '{print $2}')
             if [[ -n "$first_today_file" ]]; then
                 files+=("$first_today_file")
             fi
@@ -199,19 +242,19 @@ select_act_files() {
             fi
             ;;
         week)
-            mapfile -t files < <(find "$evlog_dir" -type f \( -name "*.ACT" -o -name "*.ACT.gz" \) -mtime -7 -printf "%T@ %f\n" | sort -n | tail -n +1 | awk '{print $2}')
+            mapfile -t files < <(find "$evlog_dir" -maxdepth 1 -type f \( -name "*.ACT" -o -name "*.ACT.gz" \) -mtime -7 -printf "%T@ %f\n" | sort -n | tail -n +1 | awk '{print $2}')
             if [[ "$DEBUG" == "1" ]]; then
                 echo "DEBUG: [week] select_act_files finished" >&2
             fi
             ;;
         numfiles)
-            mapfile -t files < <(find "$evlog_dir" -type f \( -name "*.ACT" -o -name "*.ACT.gz" \) | sort | tail -n "$arg1")
+            mapfile -t files < <(find "$evlog_dir" -maxdepth 1 -type f \( -name "*.ACT" -o -name "*.ACT.gz" \) | sort | tail -n "$arg1")
             if [[ "$DEBUG" == "1" ]]; then
                 echo "DEBUG: [numfiles] select_act_files finished" >&2
             fi
             ;;
         last)
-            mapfile -t files < <(find "$evlog_dir" -type f \( -name "*.ACT" -o -name "*.ACT.gz" \) | sort | tail -n 1)
+            mapfile -t files < <(find "$evlog_dir" -maxdepth 1 -type f \( -name "*.ACT" -o -name "*.ACT.gz" \) | sort | tail -n 1)
             if [[ "$DEBUG" == "1" ]]; then
                 echo "DEBUG: [last] select_act_files finished" >&2
             fi
@@ -495,6 +538,10 @@ fi
 # Remove Duplicate act_files
 mapfile -t act_files < <(printf "%s\n" "${act_files[@]}" | awk '!seen[$0]++')
 
+if [[ "$DEBUG" == "1" ]]; then
+    echo "act_files: ${act_files[*]}"
+fi
+
 ### Count number of ACT files and split the zipped and non-zipped files into separate variables
 files_searched="${#act_files[@]}"
 act_files_gz=()
@@ -588,7 +635,7 @@ if [[ "$salt_run" == "1" ]]; then
 
                 set -e 
                 if [[ -n "$ts_epoch" && -n "$start_epoch" && -n "$end_epoch" ]]; then
-                    if [[ "$ts_epoch" -gt "$start_epoch" && "$ts_epoch" -lt "$end_epoch" ]]; then
+                    if [[ "$ts_epoch" -ge "$start_epoch" && "$ts_epoch" -le "$end_epoch" ]]; then
                         echo "$line"
                     fi
                 fi
