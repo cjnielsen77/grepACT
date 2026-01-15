@@ -161,7 +161,7 @@ select_act_files() {
         range)
             local search_start search_end search_end_plus1
             search_start=$(date -d "$arg1" +"%Y-%m-%d 00:00:00") || die "Invalid search_date: $arg1" 64
-            search_end=$(date -d "$arg2" +"%Y-%m-%d 00:00:00") || die "Invalid search_date: $arg1" 64
+            search_end=$(date -d "$arg2" +"%Y-%m-%d 00:00:00") || die "Invalid end_search_date: $arg2" 64
             search_end_plus1=$(date -d "$arg2 +1 day" +"%Y-%m-%d 00:00:00") || die "Invalid end_search_date: $arg2" 64
 
             if [[ "$DEBUG" == "1" ]]; then
@@ -183,8 +183,8 @@ select_act_files() {
             for entry in "${files_with_time[@]}"; do
                 ts_epoch="${entry%% *}"
                 fname="${entry#* }"
-                file_time=$(date -d @"${ts_epoch%.*}" +"%H:%M:$S")
-                file_date=$(date -d @"${ts_epoch%.*}" +"%Y-%m-$d")
+                file_time=$(date -d @"${ts_epoch%.*}" +"%H:%M:%S")
+                file_date=$(date -d @"${ts_epoch%.*}" +"%Y-%m-%d")
                 # Only skip the very first file if it was created at midnight
                 if [[ $first_entry -eq 1 && "$file_time" == "00:00:00" ]]; then
                     if [[ "$DEBUG" == "1" ]]; then
@@ -212,7 +212,7 @@ select_act_files() {
                         echo "DEBUG: [range] Appending midnight file: $midnight_fname" >&2
                     fi
                 fi
-            fi        
+            fi
 
             if [[ "$DEBUG" == "1" ]]; then
                 echo "DEBUG: [range] Final files to return: ${files[*]}" >&2
@@ -539,7 +539,7 @@ fi
 mapfile -t act_files < <(printf "%s\n" "${act_files[@]}" | awk '!seen[$0]++')
 
 if [[ "$DEBUG" == "1" ]]; then
-    echo "act_files: ${act_files[*]}"
+    echo "DEBUG: act_files: ${act_files[*]}"
 fi
 
 ### Count number of ACT files and split the zipped and non-zipped files into separate variables
