@@ -9,7 +9,7 @@
 # Requirements :
 #   - ACT files must roll at midnight GMT to match CDR timing.
 #   - Script must be executable.
-#   - /home/log/sonus/sbx/evlog_dir/ must be accessible by linuxadmin.
+#   - /home/log/sonus/sbx/evlog/ must be accessible by linuxadmin.
 #   - Script should reside in /home/linuxadmin/ directory.
 #
 # Change Log
