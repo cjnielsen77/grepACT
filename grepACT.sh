@@ -39,7 +39,7 @@ trap 'rm -f "$cdr_tmpfile" "$filtered_cdr_tmpfile"' EXIT
 #----------------------------
 # Default variables
 #----------------------------
-evlog_dir="/var/log/sonus/sbx/evlog/"
+evlog_dir="${GREPACT_EVLOG_DIR:-/var/log/sonus/sbx/evlog/}"
 sbc_hostname=$(hostname)
 bn=$(basename "$0")
 five_days_ago=$(TZ=GMT date -d "5 days ago" +"%m/%d/%Y")
