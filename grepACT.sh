@@ -338,7 +338,7 @@ Examples:
         # Today's ATTEMPT CDRs, count and print fields 1(CDR Type), 6(Start Date) and 12(Disconnect Reason)
     
     $bn -t attempt -y yest -s W2 -p1,26,28 -c
-        # Yesterday's ATTEMPT CDRs for W2 (SBC TG name), count and print fields 1(CDR Type), 26(Route Label) and 28(Route Selected)
+        # Yesterday's ATTEMPT CDRs for W2, count and print fields 1(CDR Type), 26(Route Label) and 28(Route Selected)
 
     $bn -t stop -s 4025551234 -y week -p1,20,21,29,31 -c
         # STOP CDRs for 4025551234 in the past week, count and print fields 1(CDR Type), 20(Calling #), 21 (Called #), 29(Route Label), 31(Route Selected)
