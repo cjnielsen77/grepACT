@@ -40,7 +40,7 @@ Operational assumptions:
 
 Run the following commands from a Linux system with access to the SBC evlog directory.
 ```bash
-git clone https://github.com/<your-username>/grepACT.git
+git clone https://github.com/cjnielsen77/grepACT.git
 cd grepACT
 chmod +x grepACT.sh
 ```
