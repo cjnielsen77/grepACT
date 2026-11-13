@@ -24,10 +24,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y shellcheck
 
-      - name: Check Bash syntax
+      - name: Run integration tests
         run: |
-          bash -n grepACT.sh
-          bash -n tests/test_basic.sh
+          bash tests/test_basic.sh
+          bash tests/test_midnight.sh
 
       - name: Run ShellCheck
         run: |
