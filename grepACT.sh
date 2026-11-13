@@ -205,7 +205,17 @@ select_act_files() {
                 -newermt "$midnight_lower" ! -newermt "$midnight_upper" -printf "%T@ %f\n" | sort -n | head -1)
             if [[ -n "$midnight_file_entry" ]]; then
                 midnight_fname="${midnight_file_entry#* }"
-                if [[ ! " ${files[*]} " =~ " $midnight_fname " ]]; then
+                # Check whether the midnight file is already in the array
+                file_exists=0
+
+                for existing_file in "${files[@]}"; do
+                    if [[ "$existing_file" == "$midnight_fname" ]]; then
+                        file_exists=1
+                        break
+                    fi
+                done
+
+                if [[ $file_exists -eq 0 ]]; then
                     files+=("$midnight_fname")
                     if [[ "$DEBUG" == "1" ]]; then
                         echo "DEBUG: [range] Appending midnight file: $midnight_fname" >&2
