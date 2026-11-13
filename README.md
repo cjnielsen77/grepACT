@@ -1,4 +1,5 @@
 # grepACT
+[![grepACT CI](https://github.com/cjnielsen77/grepACT/actions/workflows/ci.yml/badge.svg)](https://github.com/cjnielsen77/grepACT/actions/workflows/ci.yml)
 
 `grepACT.sh` is a Bash utility for querying Ribbon / Sonus SBC ACT (CDR) files at scale.
 It supports advanced filtering, date-based file selection, deduplication, and summary reporting
