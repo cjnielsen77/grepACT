@@ -184,7 +184,6 @@ select_act_files() {
                 ts_epoch="${entry%% *}"
                 fname="${entry#* }"
                 file_time=$(date -d @"${ts_epoch%.*}" +"%H:%M:%S")
-                file_date=$(date -d @"${ts_epoch%.*}" +"%Y-%m-%d")
                 # Only skip the very first file if it was created at midnight
                 if [[ $first_entry -eq 1 && "$file_time" == "00:00:00" ]]; then
                     if [[ "$DEBUG" == "1" ]]; then
