@@ -200,13 +200,85 @@ filter_duplicates() {
     awk -F, '!a[$6 substr($10,1,5) $17 $18]++'
 }
 
-# Apply the existing ACT filters to records received on stdin.
-filter_act_records() {
-    if [[ -n "$grepACT_cmd" ]]; then
-        eval "cat $grepACT_cmd"
-    else
+# Print selected ACT fields (-p), optionally counting occurrences (-c).
+# Preserve quoted sections when -i is specified.
+filter_print_fields() {
+    if [[ -z "$printfields" ]]; then
         cat
+        return
     fi
+
+    if [[ "$prot_varnt_dis" == "1" ]]; then
+        if [[ "$printcount" == "1" ]]; then
+            cut -d'"' -f1,2,3,4,5,6,7,8,9- |
+                cut -d, -f"$printfields" |
+                sort |
+                uniq -c |
+                sed 's/,/ /g'
+        else
+            cut -d'"' -f1,2,3,4,5,6,7,8,9- |
+                cut -d, -f"$printfields" |
+                sed 's/,/ /g'
+        fi
+    else
+        if [[ "$printcount" == "1" ]]; then
+            cut -d'"' -f1,3,5,7,9- |
+                cut -d, -f"$printfields" |
+                sort |
+                uniq -c |
+                sed 's/,/ /g'
+        else
+            cut -d'"' -f1,3,5,7,9- |
+                cut -d, -f"$printfields" |
+                sed 's/,/ /g'
+        fi
+    fi
+}
+
+# Generate total call counts (-l), optionally grouped by disconnect reason.
+filter_total_call_counts() {
+    if [[ "$total_call_ct" != "1" ]]; then
+        cat
+        return
+    fi
+
+    if [[ "$dr" != "0" ]]; then
+        case "$recordtype" in
+            ATTEMPT)
+                awk -F, '{print $1,$6,substr($7,1,4),$12}'
+                ;;
+            STOP)
+                awk -F, '{print $1,$6,substr($7,1,4),$15}'
+                ;;
+            *)
+                cat
+                return
+                ;;
+        esac
+    else
+        awk -F, '{print $1,$6,substr($7,1,4)}'
+    fi | sort | uniq -c | sed 's/,/ /g'
+}
+
+# Generate time-disposition counts (-j).
+filter_time_disposition() {
+    if [[ "$timedisposition" != "4" ]]; then
+        cat
+        return
+    fi
+
+    case "$recordtype" in
+        ATTEMPT)
+            awk -F, '{print $6,substr($10,1,4),$12}'
+            ;;
+        STOP)
+            awk -F, '{print $6,substr($12,1,4),$15}'
+            ;;
+        *)
+            cat
+            return
+            ;;
+    esac | sort | uniq -c | sed 's/,/ /g'
 }
 
 select_act_files() {
@@ -776,14 +848,7 @@ if [[ "$salt_run" == "1" ]]; then
     exit 0
 fi
 
-#----------------------------
-# CLI Command build starts here
-#----------------------------
-
-# Build the grepACT command
-grepACT_cmd=""
-
-# -s search string, add to CLI grepACT_cmd
+# Validate search and reporting options.
 if [[ -n "$search" ]]; then
     # replace . with \. to comment out a period if user enters one
     search="${search//./\\.}"
@@ -847,49 +912,19 @@ if [[ "$dr" != 0 ]]; then
     fi
 fi
 
-# -p print provided CDR fields
-if [[ -n "$printfields" && "$printcount" != 0 ]] && [[ "$total_call_ct" != "1" ]] && [[ "$prot_varnt_dis" != 1 ]] && [[ "$timedisposition" == "0" ]]; then
-    grepACT_cmd+=" | cut -d\\\" -f1,3,5,7,9-|cut -d, -f${printfields} | sort | uniq -c | sed 's/,/ /g' "
-elif [[ -n "$printfields" && "$printcount" != 0 ]] && [[ "$total_call_ct" != "1" ]] && [[ "$prot_varnt_dis" == 1 ]] && [[ "$timedisposition" == "0" ]]; then
-    grepACT_cmd+=" | cut -d\\\" -f1,2,3,4,5,6,7,8,9-|cut -d, -f${printfields} | sort | uniq -c | sed 's/,/ /g' "
-elif [[ -n "$printfields" && "$printcount" == 0 ]] && [[ "$total_call_ct" != "1" ]] && [[ "$prot_varnt_dis" != 1 ]] && [[ "$timedisposition" == "0" ]]; then
-    grepACT_cmd+=" | cut -d\\\" -f1,3,5,7,9-|cut -d, -f${printfields} | sed 's/,/ /g' "
-elif [[ -n "$printfields" && "$printcount" == 0 ]] && [[ "$total_call_ct" != "1" ]] && [[ "$prot_varnt_dis" == 1 ]] && [[ "$timedisposition" == "0" ]]; then
-    grepACT_cmd+=" | cut -d\\\" -f1,2,3,4,5,6,7,8,9-|cut -d, -f${printfields} | sed 's/,/ /g' "
-elif [[ -n "$printfields" && "$timedisposition" == "4" ]] && [[ "$total_call_ct" != "1" ]]; then
-    die "Invalid option, cannot use \"-j\" or \"-l\" with \"-p\" " 64
-fi
-
 ## SALT specific options
-
-# -l (Used with SALT) get total call counts, add to CLI grepACT_cmd and end. next checks will not apply
-if [[ "$total_call_ct" == "1" ]]; then
-    if [[ "$dr" != 0 ]]; then
-        if [[ "$recordtype" == "ATTEMPT" ]]; then
-            grepACT_cmd+=" | awk -F, '{print \$1,\$6,substr(\$7,1,4),\$12}' | sort | uniq -c | sed 's/,/ /g' "
-        elif [[ "$recordtype" == "STOP" ]]; then
-            grepACT_cmd+=" | awk -F, '{print \$1,\$6,substr(\$7,1,4),\$15}' | sort | uniq -c | sed 's/,/ /g' "
-        fi
-    else
-        grepACT_cmd+=" | awk -F, '{print \$1,\$6,substr(\$7,1,4)}' | sort | uniq -c | sed 's/,/ /g' "
+# Validate unsupported combinations for time-disposition reporting (-j).
+if [[ "$timedisposition" == "4" ]]; then
+    if [[ "$total_call_ct" == "1" ]]; then
+        die "Invalid option, \"-j\" and \"-l\" cannot be used together" 64
     fi
-fi
 
-# -j (Used with SALT) get total call counts w/ dr per 10-min interval, add to CLI grepACT_cmd and end. Next checks will not apply
-if [[ "$timedisposition" == "4" ]] && [[ "$total_call_ct" != "1" ]]; then
-    if [[ "$recordtype" == "ATTEMPT" ]]; then
-        grepACT_cmd+=" | awk -F, '{print \$6,substr(\$10,1,4),\$12}' | sort | uniq -c | sed 's/,/ /g' "
-    elif [[ "$recordtype" == "STOP" ]]; then
-        grepACT_cmd+=" | awk -F, '{print \$6,substr(\$12,1,4),\$15}' | sort | uniq -c | sed 's/,/ /g' "
-    elif [[ "$recordtype" == "START" ]]; then
+    if [[ "$recordtype" == "START" ]]; then
         die "Please use -t stop or -t attempt" 64
     fi
-elif [[ "$timedisposition" == "4" ]] && [[ "$total_call_ct" == "1" ]]; then
-    die "Invalid option, \"-j\" and \"-l\" cannot be used together" 64
 fi
 
 if [[ "$DEBUG" == "1" ]]; then
-    echo "DEBUG: Filter pipeline: $grepACT_cmd"
     printf 'DEBUG: ACT file: %s\n' "${act_files[@]}"
 fi
 
@@ -923,7 +958,9 @@ if [[ "$quicklines" -gt 0 ]]; then
         filter_emergency |
         filter_disconnect_reason |
         filter_duplicates |
-        filter_act_records |
+        filter_print_fields |
+        filter_total_call_counts |
+        filter_time_disposition |
         "$quickcmd" -n "$quicklines" || true
 else
     read_act_files "${act_files[@]}" |
@@ -934,7 +971,9 @@ else
         filter_emergency |
         filter_disconnect_reason |
         filter_duplicates |
-        filter_act_records || true
+        filter_print_fields |
+        filter_total_call_counts |
+        filter_time_disposition || true
 fi
 
 exit 0
