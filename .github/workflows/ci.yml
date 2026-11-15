@@ -30,6 +30,7 @@ jobs:
           bash -n tests/test_basic.sh
           bash -n tests/test_midnight.sh
           bash -n tests/test_single_date.sh
+          bash -n tests/test_compressed.sh
 
       - name: Run ShellCheck
         run: |
@@ -37,9 +38,11 @@ jobs:
           shellcheck tests/test_basic.sh
           shellcheck tests/test_midnight.sh
           shellcheck tests/test_single_date.sh
+          shellcheck tests/test_compressed.sh
 
       - name: Run integration tests
         run: |
           bash tests/test_basic.sh
           bash tests/test_midnight.sh
           bash tests/test_single_date.sh
+          bash tests/test_compressed.sh
