@@ -49,3 +49,12 @@ jobs:
           bash tests/test_single_date.sh
           bash tests/test_compressed.sh
           bash tests/test_errors.sh
+
+      - name: Test command injection protection
+        run: bash tests/test_command_injection.sh
+
+      - name: Test field-specific searching
+        run: bash tests/test_field_search.sh
+
+      - name: Test filename injection protection
+        run: bash tests/test_filename_injection.sh

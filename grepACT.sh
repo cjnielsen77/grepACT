@@ -685,35 +685,45 @@ if [[ -n "$search" ]]; then
         fi
     fi
 
-    if [[ "$search_calling" == 1 && "$recordtype" == START ]]; then
-        grepACT_cmd+=" | awk -F, '\$15 ~ /($search)/ {print \$0}'"
-    elif [[ "$search_calling" == 1 && "$recordtype" == ATTEMPT ]]; then
-        grepACT_cmd+=" | awk -F, '\$17 ~ /($search)/ {print \$0}'"
-    elif [[ "$search_calling" == 1 && "$recordtype" == STOP ]]; then
-        grepACT_cmd+=" | awk -F, '\$20 ~ /($search)/ {print \$0}'"
-    elif [[ "$search_called" == 1 && "$recordtype" == START ]]; then
-        grepACT_cmd+=" | awk -F, '\$16 ~ /($search)/ {print \$0}'"
-    elif [[ "$search_called" == 1 && "$recordtype" == ATTEMPT ]]; then
-        grepACT_cmd+=" | awk -F, '\$18 ~ /($search)/ {print \$0}'"
-    elif [[ "$search_called" == 1 && "$recordtype" == STOP ]]; then
-        grepACT_cmd+=" | awk -F, '\$21 ~ /($search)/ {print \$0}'"
+    if [[ "$search_calling" == 1 || "$search_called" == 1 ]]; then
+        # Select the correct ACT field based on record type.
+        if [[ "$search_calling" == 1 ]]; then
+            case "$recordtype" in
+                START)   search_field=15 ;;
+                ATTEMPT) search_field=17 ;;
+                STOP)    search_field=20 ;;
+            esac
+        else
+            case "$recordtype" in
+                START)   search_field=16 ;;
+                ATTEMPT) search_field=18 ;;
+                STOP)    search_field=21 ;;
+            esac
+        fi
+
+        # Escape the search pattern for safe shell evaluation.
+        # Pass the regex through the environment to preserve backslashes.
+        printf -v search_quoted '%q' "$search"
+
+        grepACT_cmd+=" | GREPACT_PATTERN=$search_quoted awk -F, -v field=$search_field 'BEGIN { pattern = ENVIRON[\"GREPACT_PATTERN\"] } \$field ~ pattern {print \$0}'"
     else
-        grepACT_cmd+=" | grep -Ei \"$search\" "
+        printf -v search_quoted '%q' "$search"
+        grepACT_cmd+=" | grep -Ei -- $search_quoted "
     fi
 fi
 
 # -z additional search string, add to CLI grepACT_cmd
 if [[ -n "$add_search" ]]; then
-    # replace . with \. to comment out a period if user enters one
     add_search="${add_search//./\\.}"
-    grepACT_cmd+=" | sed -n \"/$add_search/I p\" "
+    printf -v add_search_quoted '%q' "$add_search"
+    grepACT_cmd+=" | grep -Ei -- $add_search_quoted "
 fi
 
 # -v exclude search string, add to CLI grepACT_cmd
 if [[ -n "$exclude" ]]; then
-    # replace . with \. to comment out a period if user enters one
     exclude="${exclude//./\\.}"
-    grepACT_cmd+=" | sed -n \"/$exclude/I d; p\" "
+    printf -v exclude_quoted '%q' "$exclude"
+    grepACT_cmd+=" | grep -Eiv -- $exclude_quoted "
 fi
 
 # -e emergency call check, add to CLI grepACT_cmd
@@ -740,6 +750,19 @@ if [[ "$emergency" == "911" || "$emergency" == "933" ]]; then
 
     if [[ "$recordtype" == "START" ]] && [[ "$emergency" == "933" ]]; then
         grepACT_cmd+=" | awk -F, '\$16==933{print \$0}' "
+    fi
+fi
+
+# Disconnect Reason must be a non-negative integer.
+if ! [[ "$dr" =~ ^[0-9]+$ ]]; then
+    die "Option -d requires a non-negative integer." 64
+fi
+
+# Validate -p field selection.
+# Accept numbers, comma-separated lists, and numeric ranges.
+if [[ -n "$printfields" ]]; then
+    if ! [[ "$printfields" =~ ^[0-9]+(-[0-9]+)?(,[0-9]+(-[0-9]+)?)*$ ]]; then
+        die "Option -p requires field numbers or ranges (example: 1,6-10,15)." 64
     fi
 fi
 
@@ -807,7 +830,8 @@ if (( act_files_gz_ct > 0 )); then
     grepACT_cmd_zip="zcat"
     for file in "${act_files_gz[@]}"; do
         filename="${file##*/}"
-        grepACT_cmd_zip+=" \"$filename\""
+        printf -v filename_quoted '%q' "./$filename"
+        grepACT_cmd_zip+=" $filename_quoted"
     done
     grepACT_cmd_zip="$grepACT_cmd_zip $grepACT_cmd"
 fi
@@ -816,10 +840,12 @@ if (( act_files_ct > 0 )); then
     grepACT_cmd_new="cat"
     for file in "${act_files_non_gz[@]}"; do
         filename="${file##*/}"
-        grepACT_cmd_new+=" \"$filename\""
+        printf -v filename_quoted '%q' "./$filename"
+        grepACT_cmd_new+=" $filename_quoted"
     done
     grepACT_cmd="$grepACT_cmd_new $grepACT_cmd"
 fi
+
 if [[ "$DEBUG" == "1" ]]; then
     echo "DEBUG: $grepACT_cmd"
     if (( act_files_gz_ct > 0 )); then
