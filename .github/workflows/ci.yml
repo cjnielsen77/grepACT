@@ -24,15 +24,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y shellcheck
 
-      - name: Run integration tests
+      - name: Check Bash syntax
         run: |
-          bash tests/test_basic.sh
-          bash tests/test_midnight.sh
+          bash -n grepACT.sh
+          bash -n tests/test_basic.sh
+          bash -n tests/test_midnight.sh
 
       - name: Run ShellCheck
         run: |
           shellcheck grepACT.sh
           shellcheck tests/test_basic.sh
+          shellcheck tests/test_midnight.sh
 
       - name: Run integration tests
-        run: bash tests/test_basic.sh
+        run: |
+          bash tests/test_basic.sh
+          bash tests/test_midnight.sh
