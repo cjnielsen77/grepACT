@@ -24,7 +24,7 @@ run_test() {
 
     output=$(GREPACT_EVLOG_DIR="$test_dir" bash "$grepact_script" -t "$record_type")
 
-    if [[ "$output" == *"$expected_record"* ]] &&
+    if [[ $(printf '%s\n' "$output" | grep -Fxc -- "$expected_record") -eq 1 ]] &&
        [[ $(printf '%s\n' "$output" | grep -Ec '^(START|STOP|ATTEMPT),') -eq 1 ]]; then
         echo "PASS: $record_type filtering"
     else
@@ -34,8 +34,8 @@ run_test() {
     fi
 }
 
-run_test start "START,TEST_CALL_001"
-run_test stop "STOP,TEST_CALL_002"
-run_test attempt "ATTEMPT,TEST_CALL_003"
+run_test start "START,TEST_CALL_001,4025551234,4025555678"
+run_test stop "STOP,TEST_CALL_002,4025551234,4025555678"
+run_test attempt "ATTEMPT,TEST_CALL_003,4025551234,4025555678"
 
 echo "All basic integration tests passed."

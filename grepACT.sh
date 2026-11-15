@@ -113,6 +113,93 @@ filter_record_type() {
     '
 }
 
+# Apply the primary -s search filter directly.
+filter_search() {
+    if [[ -z "$search" ]]; then
+        cat
+        return
+    fi
+
+    if [[ "$search_calling" == 1 || "$search_called" == 1 ]]; then
+        GREPACT_PATTERN="$search" \
+            awk -F, -v field="$search_field" '
+                BEGIN { pattern = ENVIRON["GREPACT_PATTERN"] }
+                $field ~ pattern { print }
+            '
+    else
+        grep -Ei -- "$search"
+    fi
+}
+
+# Apply the additional -z search filter.
+filter_additional_search() {
+    if [[ -z "$add_search" ]]; then
+        cat
+    else
+        grep -Ei -- "$add_search"
+    fi
+}
+
+# Exclude records matching the -v search pattern.
+filter_exclude_search() {
+    if [[ -z "$exclude" ]]; then
+        cat
+    else
+        grep -Eiv -- "$exclude"
+    fi
+}
+
+# Filter emergency calls using the appropriate ACT field.
+filter_emergency() {
+    local field
+
+    if [[ "$emergency" != "911" && "$emergency" != "933" ]]; then
+        cat
+        return
+    fi
+
+    case "$recordtype" in
+        START)   field=16 ;;
+        STOP)    field=21 ;;
+        ATTEMPT) field=18 ;;
+        *)       cat; return ;;
+    esac
+
+    awk -F, -v field="$field" -v number="$emergency" '
+        $field == number { print }
+    '
+}
+
+# Filter ACT records by disconnect reason (-d).
+filter_disconnect_reason() {
+    local field
+
+    if [[ "$dr" == "0" ]]; then
+        cat
+        return
+    fi
+
+    case "$recordtype" in
+        STOP)    field=15 ;;
+        ATTEMPT) field=12 ;;
+        *)       cat; return ;;
+    esac
+
+    awk -F, -v field="$field" -v reason="$dr" '
+        $field == reason { print }
+    '
+}
+
+# Remove duplicate ATTEMPT records (-u).
+filter_duplicates() {
+    if [[ "$rem_dup" != "1" ]]; then
+        cat
+        return
+    fi
+
+    awk -F, '!a[$6 substr($10,1,5) $17 $18]++'
+}
+
 # Apply the existing ACT filters to records received on stdin.
 filter_act_records() {
     if [[ -n "$grepACT_cmd" ]]; then
@@ -725,57 +812,17 @@ if [[ -n "$search" ]]; then
                 STOP)    search_field=21 ;;
             esac
         fi
-
-        # Escape the search pattern for safe shell evaluation.
-        # Pass the regex through the environment to preserve backslashes.
-        printf -v search_quoted '%q' "$search"
-
-        grepACT_cmd+=" | GREPACT_PATTERN=$search_quoted awk -F, -v field=$search_field 'BEGIN { pattern = ENVIRON[\"GREPACT_PATTERN\"] } \$field ~ pattern {print \$0}'"
-    else
-        printf -v search_quoted '%q' "$search"
-        grepACT_cmd+=" | grep -Ei -- $search_quoted "
     fi
 fi
 
-# -z additional search string, add to CLI grepACT_cmd
+# -z additional search string.
 if [[ -n "$add_search" ]]; then
     add_search="${add_search//./\\.}"
-    printf -v add_search_quoted '%q' "$add_search"
-    grepACT_cmd+=" | grep -Ei -- $add_search_quoted "
 fi
 
-# -v exclude search string, add to CLI grepACT_cmd
+# -v exclude search string.
 if [[ -n "$exclude" ]]; then
     exclude="${exclude//./\\.}"
-    printf -v exclude_quoted '%q' "$exclude"
-    grepACT_cmd+=" | grep -Eiv -- $exclude_quoted "
-fi
-
-# -e emergency call check, add to CLI grepACT_cmd
-if [[ "$emergency" == "911" || "$emergency" == "933" ]]; then
-    if [[ "$recordtype" == "ATTEMPT" ]] && [[ "$emergency" == "911" ]]; then
-        grepACT_cmd+=" | awk -F, '\$18==911{print \$0}' "
-    fi
-
-    if [[ "$recordtype" == "ATTEMPT" ]] && [[ "$emergency" == "933" ]]; then
-        grepACT_cmd+=" | awk -F, '\$18==933{print \$0}' "
-    fi
-
-    if [[ "$recordtype" == "STOP" ]] && [[ "$emergency" == "911" ]]; then
-        grepACT_cmd+=" | awk -F, '\$21==911{print \$0}' "
-    fi
-
-    if [[ "$recordtype" == "STOP" ]] && [[ "$emergency" == "933" ]]; then
-        grepACT_cmd+=" | awk -F, '\$21==933{print \$0}' "
-    fi
-
-    if [[ "$recordtype" == "START" ]] && [[ "$emergency" == "911" ]]; then
-        grepACT_cmd+=" | awk -F, '\$16==911{print \$0}' "
-    fi
-
-    if [[ "$recordtype" == "START" ]] && [[ "$emergency" == "933" ]]; then
-        grepACT_cmd+=" | awk -F, '\$16==933{print \$0}' "
-    fi
 fi
 
 # Disconnect Reason must be a non-negative integer.
@@ -791,22 +838,13 @@ if [[ -n "$printfields" ]]; then
     fi
 fi
 
-# -d search for CDRs based on Disconnect Reason (DR), add to CLI grepACT_cmd
+# -d validation for unsupported record types.
 if [[ "$dr" != 0 ]]; then
-    if [[ "$recordtype" == "ATTEMPT" ]]; then
-        grepACT_cmd+=" | awk -F, '\$12=='$dr'{print \$0}' "
-    elif [[ "$recordtype" == "STOP" ]]; then
-        grepACT_cmd+=" | awk -F, '\$15=='$dr'{print \$0}' "
-    elif [[ "$recordtype" == "START" ]]; then
+    if [[ "$recordtype" == "START" ]]; then
         die "No Disconnect Reason within a START CDR, use -t stop or -t attempt" 64
-    elif [[ "$recordtype" == "START|STOP|ATTEMPT" ]] && [[ "$total_call_ct" != "1" ]]; then
+    elif [[ -z "$recordtype" && "$total_call_ct" != "1" ]]; then
         die "Please define a record type, use -t stop or -t attempt" 64
     fi
-fi
-
-# Remove calls with same calling/called number within 1 min. Removes redials between same numbers or crankbacks from end devices
-if [[ "$rem_dup" == "1" ]]; then
-    grepACT_cmd+=" | awk -F, '!a[\$6substr(\$10,1,5)\$17\$18]++' "
 fi
 
 # -p print provided CDR fields
@@ -876,15 +914,26 @@ fi
 cd "$evlog_dir"
 echo
 
-
 if [[ "$quicklines" -gt 0 ]]; then
     read_act_files "${act_files[@]}" |
         filter_record_type |
+        filter_search |
+        filter_additional_search |
+        filter_exclude_search |
+        filter_emergency |
+        filter_disconnect_reason |
+        filter_duplicates |
         filter_act_records |
         "$quickcmd" -n "$quicklines" || true
 else
     read_act_files "${act_files[@]}" |
         filter_record_type |
+        filter_search |
+        filter_additional_search |
+        filter_exclude_search |
+        filter_emergency |
+        filter_disconnect_reason |
+        filter_duplicates |
         filter_act_records || true
 fi
 
