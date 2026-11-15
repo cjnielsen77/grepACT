@@ -29,14 +29,17 @@ jobs:
           bash -n grepACT.sh
           bash -n tests/test_basic.sh
           bash -n tests/test_midnight.sh
+          bash -n tests/test_single_date.sh
 
       - name: Run ShellCheck
         run: |
           shellcheck grepACT.sh
           shellcheck tests/test_basic.sh
           shellcheck tests/test_midnight.sh
+          shellcheck tests/test_single_date.sh
 
       - name: Run integration tests
         run: |
           bash tests/test_basic.sh
           bash tests/test_midnight.sh
+          bash tests/test_single_date.sh
