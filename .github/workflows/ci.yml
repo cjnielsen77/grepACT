@@ -49,6 +49,8 @@ jobs:
           bash tests/test_single_date.sh
           bash tests/test_compressed.sh
           bash tests/test_errors.sh
+          bash tests/test_file_reader.sh
+          bash tests/test_quick_output.sh
 
       - name: Test command injection protection
         run: bash tests/test_command_injection.sh

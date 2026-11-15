@@ -88,6 +88,40 @@ warn() { echo "WARN: $*" >&2; }
 need_cmd() { command -v "$1" >/dev/null 2>&1 || die "Missing required dependency: $1" 127; }
 is_uint() { [[ "${1:-}" =~ ^[0-9]+$ ]]; }
 
+# Read plain and compressed ACT files without eval.
+read_act_files() {
+    local file
+
+    for file in "$@"; do
+        if [[ "$file" == *.gz ]]; then
+            gzip -cd -- "$file"
+        else
+            cat -- "$file"
+        fi
+    done
+}
+
+# Filter ACT records by record type.
+filter_record_type() {
+    awk -F, -v type="$recordtype" '
+        type == "" {
+            if ($1 == "START" || $1 == "STOP" || $1 == "ATTEMPT")
+                print
+            next
+        }
+        $1 == type { print }
+    '
+}
+
+# Apply the existing ACT filters to records received on stdin.
+filter_act_records() {
+    if [[ -n "$grepACT_cmd" ]]; then
+        eval "cat $grepACT_cmd"
+    else
+        cat
+    fi
+}
+
 select_act_files() {
     local mode="${1:-}"
     local arg1="${2:-}"
@@ -562,8 +596,6 @@ for file in "${act_files[@]}"; do
         act_files_non_gz+=("$file")
     fi
 done
-act_files_ct="${#act_files_non_gz[@]}"
-act_files_gz_ct="${#act_files_gz[@]}"
 
 # No ACT files found, exit
 if (( files_searched == 0 )); then
@@ -663,13 +695,6 @@ fi
 
 # Build the grepACT command
 grepACT_cmd=""
-
-# starting point for the CLI command (grepACT_cmd)
-if [[ "$recordtype" == "STOP" ]] || [[ "$recordtype" == "ATTEMPT" ]] || [[ "$recordtype" == "START" ]]; then
-    grepACT_cmd+=" | awk -F, '\$1==\"$recordtype\" {print \$0}' "
-else
-    grepACT_cmd+=" | awk -F, '\$1==\"STOP\" || \$1==\"ATTEMPT\" || \$1==\"START\" {print \$0}' "
-fi
 
 # -s search string, add to CLI grepACT_cmd
 if [[ -n "$search" ]]; then
@@ -825,32 +850,9 @@ elif [[ "$timedisposition" == "4" ]] && [[ "$total_call_ct" == "1" ]]; then
     die "Invalid option, \"-j\" and \"-l\" cannot be used together" 64
 fi
 
-# check for zipped files, copy act_files and linux command
-if (( act_files_gz_ct > 0 )); then
-    grepACT_cmd_zip="zcat"
-    for file in "${act_files_gz[@]}"; do
-        filename="${file##*/}"
-        printf -v filename_quoted '%q' "./$filename"
-        grepACT_cmd_zip+=" $filename_quoted"
-    done
-    grepACT_cmd_zip="$grepACT_cmd_zip $grepACT_cmd"
-fi
-
-if (( act_files_ct > 0 )); then
-    grepACT_cmd_new="cat"
-    for file in "${act_files_non_gz[@]}"; do
-        filename="${file##*/}"
-        printf -v filename_quoted '%q' "./$filename"
-        grepACT_cmd_new+=" $filename_quoted"
-    done
-    grepACT_cmd="$grepACT_cmd_new $grepACT_cmd"
-fi
-
 if [[ "$DEBUG" == "1" ]]; then
-    echo "DEBUG: $grepACT_cmd"
-    if (( act_files_gz_ct > 0 )); then
-        echo "DEBUG: $grepACT_cmd_zip"
-    fi
+    echo "DEBUG: Filter pipeline: $grepACT_cmd"
+    printf 'DEBUG: ACT file: %s\n' "${act_files[@]}"
 fi
 
 # ----------------------------
@@ -868,26 +870,22 @@ elif [[ "$recordtype" == "STOP" ]]; then
 elif [[ "$recordtype" == "ATTEMPT" ]]; then
     echo "Searching $files_searched ACT file(s) for ATTEMPT CDRs"
 else
-    recordtype="START|STOP|ATTEMPT"
     echo "Searching $files_searched ACT file(s) for START, STOP, ATTEMPT CDRs"
 fi
 
 cd "$evlog_dir"
 echo
 
+
 if [[ "$quicklines" -gt 0 ]]; then
-    if [[ "$act_files_gz_ct" -ge 1 ]]; then
-        eval "$grepACT_cmd_zip" 2>/dev/null | "$quickcmd" -n "$quicklines" 2>/dev/null || true
-    elif [[ "$act_files_ct" -ge 1 ]]; then
-        eval "$grepACT_cmd" 2>/dev/null | "$quickcmd" -n "$quicklines" 2>/dev/null || true
-    fi
+    read_act_files "${act_files[@]}" |
+        filter_record_type |
+        filter_act_records |
+        "$quickcmd" -n "$quicklines" || true
 else
-    if [[ "$act_files_gz_ct" -ge 1 ]]; then
-        eval "$grepACT_cmd_zip" || true
-    fi
-    if [[ "$act_files_ct" -ge 1 ]]; then
-        eval "$grepACT_cmd" || true
-    fi
+    read_act_files "${act_files[@]}" |
+        filter_record_type |
+        filter_act_records || true
 fi
 
 exit 0
